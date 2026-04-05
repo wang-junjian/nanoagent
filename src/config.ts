@@ -2,13 +2,10 @@ import type { Config } from './types.js'
 
 // ============= 配置 =============
 export const CONFIG: Config = {
-  // baseURL: 'http://localhost:11434/',
-  // apiKey: 'NONE',
-  // model: 'qwen3.5:9b',
-  baseURL: 'https://api.longcat.chat/openai/',
-  apiKey: 'ak_1984ca0Z44JH84E2NI2xS4rA7593u',
-  model: 'LongCat-Flash-Thinking-2601',
-  maxTokens: 256000,
+  baseURL: process.env.BASE_URL || 'http://localhost:11434/',
+  apiKey: process.env.API_KEY || 'NONE',
+  model: process.env.MODEL || 'qwen3.5:9b',
+  maxTokens: parseInt(process.env.MAX_TOKENS || '256000', 10),
 } as const
 
 export const SYSTEM_PROMPT = `你是一个交互式智能体，帮助用户完成软件工程任务。使用以下说明和可用的工具来协助用户。

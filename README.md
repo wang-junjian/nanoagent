@@ -35,15 +35,19 @@ npm install
 
 ### 配置
 
-编辑 [`src/config.ts`](src/config.ts) 修改你的 LLM 配置：
+复制 `.env.example` 为 `.env` 并修改你的 LLM 配置：
 
-```typescript
-export const CONFIG: Config = {
-  baseURL: 'http://localhost:11434/',      // 你的 API 地址
-  apiKey: 'NONE',                             // API Key
-  model: 'qwen3.5:9b',                       // 模型名称
-  maxTokens: 256000,
-}
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件：
+
+```env
+BASE_URL=http://localhost:11434/      # 你的 API 地址
+API_KEY=NONE                             # API Key
+MODEL=qwen3.5:9b                         # 模型名称
+MAX_TOKENS=256000
 ```
 
 ### 运行
@@ -435,19 +439,17 @@ async *run(userInput: string): AsyncGenerator<string, void, unknown> {
 
 ### Q: 如何修改模型配置？
 
-A: 编辑 [`src/config.ts`](src/config.ts) 中的 `CONFIG` 对象。
+A: 编辑 `.env` 文件中的环境变量。
 
 ### Q: 可以用 OpenAI 的官方 API 吗？
 
-A: 可以！只需修改 `baseURL` 和 `apiKey`：
+A: 可以！只需修改 `.env` 文件：
 
-```typescript
-export const CONFIG: Config = {
-  baseURL: 'https://api.openai.com/v1/',
-  apiKey: 'sk-your-api-key-here',
-  model: 'gpt-4',
-  maxTokens: 256000,
-}
+```env
+BASE_URL=https://api.openai.com/v1/
+API_KEY=sk-your-api-key-here
+MODEL=gpt-4
+MAX_TOKENS=256000
 ```
 
 ### Q: 如何增加最大迭代次数？

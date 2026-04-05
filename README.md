@@ -58,53 +58,34 @@ npm start "读取 package.json"
 
 ### Agent 循环流程图
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         用户输入                             │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  1. 添加用户消息到 messages[] 数组                             │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-                             ▼
-        ┌───────────────────────────────────────┐
-        │  2. 进入 Agent 主循环 (最多 10 次)       │
-        └─────────────────┬─────────────────────┘
-                          │
-            ┌─────────────▼──────────────┐
-            │                            │
-            ▼                            ▼
-    ┌───────────────┐           ┌─────────────────┐
-    │  3. 调用 LLM   │           │  4. 检查响应     │
-    │  (chatComplet-│           │   tool_calls?   │
-    │   ions)       │           └────────┬────────┘
-    └───────┬───────┘                    │
-            │                            │
-            └──────────────┬─────────────┘
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-         有工具调用                   无工具调用
-              │                         │
-              ▼                         ▼
-    ┌───────────────────┐    ┌───────────────────┐
-    │  5. 执行工具       │    │  6. 结束循环        │
-    │  (tool.execute)   │    │  返回最终结果       │
-    └─────────┬─────────┘    └───────────────────┘
-              │
-              ▼
-    ┌───────────────────┐
-    │  7. 添加 tool_     │
-    │     result 到历史  │
-    └─────────┬─────────┘
-              │
-              └─────────────┐
-                            │
-              ┌─────────────▼─────────────┐
-              │  8. 回到步骤 2，继续循环     │
-              └───────────────────────────┘
+```mermaid
+graph TD
+    Start([用户输入]) --> Init[1.追加 User Message 到 messages 数组]
+    Init --> LoopStart{2.进入 Agent 主循环<br>当前迭代次数 < 10?}
+    
+    LoopStart -- 否 --> MaxHit([抛出异常: 超过最大迭代次数限制])
+    LoopStart -- 是 --> CallLLM[3.调用 LLM API<br>传入 messages & tools]
+    
+    CallLLM --> AppendAssistant[4.将 LLM 的完整响应<br>Assistant Message 追加到 messages 数组]
+    
+    AppendAssistant --> CheckTools{5.检查响应内容:<br>stop_reason == tool_use?}
+    
+    CheckTools -- 否 --> End([8.结束循环，返回最终自然语言结果])
+    
+    CheckTools -- 是 --> ExecTools[6.提取 tool_calls<br>并在本地执行工具 tool.execute]
+    
+    ExecTools --> AppendToolResult[7.将工具执行结果 tool_result<br>追加到 messages 数组]
+    
+    AppendToolResult --> |迭代次数 +1| LoopStart
+
+    %% 样式定义 (放到最后通常更稳定)
+    classDef startEnd fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef process fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef condition fill:#fdb,stroke:#333,stroke-width:1px;
+
+    class Start,MaxHit,End startEnd;
+    class Init,CallLLM,AppendAssistant,ExecTools,AppendToolResult process;
+    class LoopStart,CheckTools condition;
 ```
 
 ### 与 Claude Code 核心原理对比

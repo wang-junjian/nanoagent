@@ -6,14 +6,18 @@
 
 Nano Agent 是一个极简的 AI 智能体实现，它从 Claude Code v2.1.88 的源码中提炼出核心工作原理，用 TypeScript 重写为一个可独立运行的项目。
 
+本项目借鉴 Claude Code 项目的设计，提供了完整的工具系统、专业的系统提示词、以及项目配置文件。
+
 ## 核心特性
 
 - 🎯 **Agent 循环** - 用户输入 → LLM → 工具执行 → 回到 LLM
-- 🔧 **可扩展工具系统** - 内置 5 个实用工具，易于添加新工具
+- 🔧 **可扩展工具系统** - 内置 8 个实用工具（FileRead、FileWrite、FileEdit、Glob、Grep、Bash、ListDir、AskUserQuestion），易于添加新工具
 - 💬 **消息历史管理** - 完整的对话上下文保留
 - ⚡ **异步生成器输出** - 实时流式响应
 - 🖥️ **交互式 REPL 模式** - 类似 Claude Code 的命令行界面
 - 📦 **零运行时依赖** - 仅使用 Node.js 内置模块
+- 📝 **完整系统提示词** - 借鉴 Claude Code 的 6 个核心章节专业行为指导
+- ⚙️ **CLAUDE.md 配置** - 帮助 Claude Code 更好地理解和协作开发本项目
 
 ## 快速开始
 
@@ -82,6 +86,84 @@ npm start "读取 package.json"
 | `/history` | 查看当前对话的消息历史 |
 | `/exit` | 退出程序 (也可用 Ctrl+C 或 Ctrl+D) |
 
+## 内置工具
+
+### FileRead
+读取文件内容。
+
+**参数：**
+- `file_path` (string, 必需) - 要读取的文件路径
+
+### FileWrite
+创建新文件或完全覆盖现有文件。
+
+**参数：**
+- `file_path` (string, 必需) - 要写入的文件路径
+- `content` (string, 必需) - 要写入的内容
+
+### FileEdit
+编辑文件内容，通过替换旧字符串为新字符串。借鉴自 Claude Code 的 `FileEditTool`。
+
+**参数：**
+- `file_path` (string, 必需) - 要编辑的文件路径
+- `old_string` (string, 必需) - 要替换的旧字符串
+- `new_string` (string, 必需) - 替换后的新字符串
+- `replace_all` (boolean, 可选) - 是否替换所有匹配项（默认只替换第一个）
+
+### Glob
+搜索匹配模式的文件。
+
+**参数：**
+- `pattern` (string, 必需) - glob 模式 (例如: `*.js`, `**/*.ts`)
+
+### Grep
+在文件内容中搜索正则表达式匹配。借鉴自 Claude Code 的 `GrepTool`。
+
+**参数：**
+- `pattern` (string, 必需) - 要搜索的正则表达式模式
+- `path` (string, 可选) - 要搜索的文件或目录路径（默认为当前目录）
+- `output_mode` (string, 可选) - 输出模式: `content`（显示匹配行）或 `files_with_matches`（只显示文件名）
+
+### Bash
+执行 shell 命令。
+
+**参数：**
+- `command` (string, 必需) - 要执行的 shell 命令
+
+### ListDir
+列出目录内容。
+
+**参数：**
+- `path` (string, 可选) - 目录路径 (默认为 `.`)
+
+### AskUserQuestion
+向用户询问问题并获取回答。借鉴自 Claude Code 的 `AskUserQuestionTool`。
+
+**参数：**
+- `question` (string, 必需) - 要问用户的问题
+
+## 如何添加新工具
+
+1. 在 [`src/tools.ts`](src/tools.ts) 的 `TOOLS` 数组中添加新工具定义：
+
+```typescript
+{
+  name: 'MyNewTool',
+  description: '工具描述',
+  params: {
+    param1: { type: 'string', description: '参数1描述', required: true },
+    param2: { type: 'number', description: '参数2描述', required: false },
+  },
+  execute: async (args: Record<string, any>) => {
+    const { param1, param2 = 42 } = args
+    // 实现工具逻辑
+    return '工具执行结果'
+  },
+},
+```
+
+2. 工具会自动注册到 Agent 中，无需其他配置！
+
 ## 核心工作原理
 
 ### Agent 循环流程图
@@ -90,26 +172,26 @@ npm start "读取 package.json"
 graph TD
     Start([用户输入]) --> Init[1.追加 User Message 到 messages 数组]
     Init --> LoopStart{2.进入 Agent 主循环<br>当前迭代次数 < 10?}
-    
+
     LoopStart -- 否 --> MaxHit([抛出异常: 超过最大迭代次数限制])
     LoopStart -- 是 --> CallLLM[3.调用 LLM API<br>传入 messages & tools]
-    
+
     CallLLM --> AppendAssistant[4.将 LLM 的完整响应<br>Assistant Message 追加到 messages 数组]
-    
+
     AppendAssistant --> CheckTools{5.检查响应内容:<br>stop_reason == tool_use?}
-    
+
     CheckTools -- 否 --> End([8.结束循环，返回最终自然语言结果])
-    
+
     CheckTools -- 是 --> ExecTools[6.提取 tool_calls<br>并在本地执行工具 tool.execute]
-    
+
     ExecTools --> AppendToolResult[7.将工具执行结果 tool_result<br>追加到 messages 数组]
-    
+
     AppendToolResult --> |迭代次数 +1| LoopStart
 
     %% 样式定义 (放到最后通常更稳定)
-    classDef startEnd fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef process fill:#bbf,stroke:#333,stroke-width:1px;
-    classDef condition fill:#fdb,stroke:#333,stroke-width:1px;
+    classDef startEnd fill:#f9f,stroke:#33,stroke-width:2px;
+    classDef process fill:#bbf,stroke:#33,stroke-width:1px;
+    classDef condition fill:#fdb,stroke:#33,stroke-width:1px;
 
     class Start,MaxHit,End startEnd;
     class Init,CallLLM,AppendAssistant,ExecTools,AppendToolResult process;
@@ -120,12 +202,12 @@ graph TD
 
 | 组件 | Claude Code | Nano Agent | 文件位置 |
 |------|-------------|------------|----------|
-| 主循环 | `queryLoop()` | `NanoAgent.run()` | [`src/agent.ts:20`](src/agent.ts#L20) |
+| 主循环 | `queryLoop()` | `NanoAgent.run()` | [`src/agent.ts:18`](src/agent.ts#L18) |
 | 消息历史 | `mutableMessages[]` | `messages[]` | [`src/agent.ts:8`](src/agent.ts#L8) |
 | 工具系统 | `Tool` 接口 | `ToolDefinition` 接口 | [`src/types.ts:16`](src/types.ts#L16) |
 | 工具执行 | `runTools()` + `StreamingToolExecutor` | 直接在循环中执行 | [`src/agent.ts:51`](src/agent.ts#L51) |
 | API 调用 | `callModel()` | `chatCompletions()` | [`src/client.ts:11`](src/client.ts#L11) |
-| 格式转换 | OpenAI 工具格式 | `toolsToOpenAIFormat()` | [`src/tools.ts:99`](src/tools.ts#L99) |
+| 格式转换 | OpenAI 工具格式 | `toolsToOpenAIFormat()` | [`src/tools.ts:240`](src/tools.ts#L240) |
 | **REPL 模式** | **`launchRepl()` + `REPL.tsx`** | **`REPL` 类** | **[`src/repl.ts`](src/repl.ts)** |
 
 ### REPL 模式设计
@@ -176,6 +258,7 @@ class REPL {
 nanoagent/
 ├── package.json              # NPM 配置
 ├── tsconfig.json             # TypeScript 配置
+├── CLAUDE.md                 # Claude Code 项目配置
 ├── README.md                 # 本文档
 └── src/
     ├── types.ts             # 类型定义
@@ -186,18 +269,21 @@ nanoagent/
     │
     ├── config.ts            # 配置 + 系统提示词
     │   ├─ CONFIG            # LLM 配置对象
-    │   └─ SYSTEM_PROMPT     # 系统提示词
+    │   └─ SYSTEM_PROMPT     # 完整系统提示词（6个核心章节）
     │
     ├── utils.ts             # 工具函数
     │   └─ simpleGlob        # 简易 glob 实现
     │
     ├── tools.ts             # 工具定义 + 实现
-    │   ├─ TOOLS[]           # 工具数组
+    │   ├─ TOOLS[]           # 工具数组（8个内置工具）
     │   ├─ FileRead          # 读取文件
     │   ├─ FileWrite         # 写入文件
+    │   ├─ FileEdit          # 编辑文件
     │   ├─ Glob              # 搜索文件
+    │   ├─ Grep              # 内容搜索
     │   ├─ Bash              # 执行 Shell 命令
     │   ├─ ListDir           # 列出目录
+    │   ├─ AskUserQuestion   # 询问用户
     │   └─ toolsToOpenAIFormat()
     │
     ├── client.ts            # API 客户端
@@ -221,61 +307,6 @@ nanoagent/
     └── main.ts              # CLI 入口
        └─ main()             # 解析命令行参数，启动 REPL 或单次执行
 ```
-
-## 内置工具
-
-### FileRead
-读取文件内容。
-
-**参数：**
-- `file_path` (string, 必需) - 要读取的文件路径
-
-### FileWrite
-创建新文件或完全覆盖现有文件。
-
-**参数：**
-- `file_path` (string, 必需) - 要写入的文件路径
-- `content` (string, 必需) - 要写入的内容
-
-### Glob
-搜索匹配模式的文件。
-
-**参数：**
-- `pattern` (string, 必需) - glob 模式 (例如: `*.js`, `**/*.ts`)
-
-### Bash
-执行 shell 命令。
-
-**参数：**
-- `command` (string, 必需) - 要执行的 shell 命令
-
-### ListDir
-列出目录内容。
-
-**参数：**
-- `path` (string, 可选) - 目录路径 (默认为 `.`)
-
-## 如何添加新工具
-
-1. 在 [`src/tools.ts`](src/tools.ts) 的 `TOOLS` 数组中添加新工具定义：
-
-```typescript
-{
-  name: 'MyNewTool',
-  description: '工具描述',
-  params: {
-    param1: { type: 'string', description: '参数1描述', required: true },
-    param2: { type: 'number', description: '参数2描述', required: false },
-  },
-  execute: async (args: Record<string, any>) => {
-    const { param1, param2 = 42 } = args
-    // 实现工具逻辑
-    return '工具执行结果'
-  },
-},
-```
-
-2. 工具会自动注册到 Agent 中，无需其他配置！
 
 ## 使用示例
 
@@ -328,7 +359,7 @@ npm run dev "创建一个 hello.txt 文件，内容是 'Hello World'"
 
 ### Agent 主循环
 
-[`src/agent.ts:20`](src/agent.ts#L20) 中的 `run()` 方法是核心：
+[`src/agent.ts:18`](src/agent.ts#L18) 中的 `run()` 方法是核心：
 
 ```typescript
 async *run(userInput: string): AsyncGenerator<string, void, unknown> {
@@ -379,11 +410,24 @@ async *run(userInput: string): AsyncGenerator<string, void, unknown> {
 }
 ```
 
+## 系统提示词架构
+
+借鉴 Claude Code 源码，[`src/config.ts`](src/config.ts) 中的系统提示词包含 6 个核心章节：
+
+| 章节 | 说明 |
+|------|------|
+| **System** | 系统基础说明（输出渲染、工具权限、系统标签） |
+| **Doing tasks** | 任务执行指南（软件工程原则、代码风格、验证标准） |
+| **Executing actions with care** | 谨慎执行操作（高风险确认、破坏性操作清单、障碍处理） |
+| **Using your tools** | 工具使用规则（专用工具优先、并行调用建议） |
+| **Tone and style** | 语气和风格（表情符号、代码引用格式） |
+| **Output efficiency** | 输出效率（简洁直接、重点关注内容） |
+
 ## 技术栈
 
 - **TypeScript 5.0+** - 类型安全
 - **ES2022** - 现代 JavaScript 特性
-- **Node.js 内置模块** - `fs`, `child_process`, `path`, `url`, `util`
+- **Node.js 内置模块** - `fs`, `child_process`, `path`, `url`, `util`, `readline`
 - **tsx** - TypeScript 运行时 (开发依赖)
 - **零运行时依赖** - 生产环境不需要任何外部包
 

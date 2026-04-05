@@ -1,0 +1,16 @@
+{
+  "name": "nanoagent",
+  "version": "1.0.0",
+  "description": "基于 Claude Code 核心原理的最简智能体",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

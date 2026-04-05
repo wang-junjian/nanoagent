@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "基于 Claude Code 核心原理的最简智能体",
   "type": "module",
+  "bin": {
+    "nanoagent": "./dist/main.js"
+  },
   "scripts": {
     "dev": "tsx src/main.ts",
     "build": "tsc",

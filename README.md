@@ -12,6 +12,7 @@ Nano Agent 是一个极简的 AI 智能体实现，它从 Claude Code v2.1.88 �
 - 🔧 **可扩展工具系统** - 内置 5 个实用工具，易于添加新工具
 - 💬 **消息历史管理** - 完整的对话上下文保留
 - ⚡ **异步生成器输出** - 实时流式响应
+- 🖥️ **交互式 REPL 模式** - 类似 Claude Code 的命令行界面
 - 📦 **零运行时依赖** - 仅使用 Node.js 内置模块
 
 ## 快速开始
@@ -43,6 +44,22 @@ export const CONFIG: Config = {
 
 ### 运行
 
+Nano Agent 支持两种运行模式：
+
+#### 1. 交互式 REPL 模式（推荐）
+
+```bash
+# 进入交互式命令行界面
+npm run dev
+```
+
+在 REPL 模式中，你可以：
+- 连续对话，上下文自动保留
+- 使用斜杠命令控制会话
+- 体验类似 Claude Code 的交互方式
+
+#### 2. 单次执行模式
+
 ```bash
 # 开发模式（使用 tsx 直接运行 TypeScript）
 npm run dev "列出当前目录的文件"
@@ -53,6 +70,17 @@ npm run build
 # 生产模式运行
 npm start "读取 package.json"
 ```
+
+### REPL 命令
+
+在交互式模式中可用的命令：
+
+| 命令 | 功能 |
+|------|------|
+| `/help` | 显示帮助信息 |
+| `/clear` | 清空对话历史，开始新会话 |
+| `/history` | 查看当前对话的消息历史 |
+| `/exit` | 退出程序 (也可用 Ctrl+C 或 Ctrl+D) |
 
 ## 核心工作原理
 
@@ -98,6 +126,35 @@ graph TD
 | 工具执行 | `runTools()` + `StreamingToolExecutor` | 直接在循环中执行 | [`src/agent.ts:51`](src/agent.ts#L51) |
 | API 调用 | `callModel()` | `chatCompletions()` | [`src/client.ts:11`](src/client.ts#L11) |
 | 格式转换 | OpenAI 工具格式 | `toolsToOpenAIFormat()` | [`src/tools.ts:99`](src/tools.ts#L99) |
+| **REPL 模式** | **`launchRepl()` + `REPL.tsx`** | **`REPL` 类** | **[`src/repl.ts`](src/repl.ts)** |
+
+### REPL 模式设计
+
+Nano Agent 的 REPL（交互式命令行）模式借鉴了 Claude Code 的设计理念：
+
+| 特性 | 说明 | 借鉴自 Claude Code |
+|------|------|-------------------|
+| **斜杠命令** | `/help`, `/clear`, `/history`, `/exit` | `src/commands.ts` 中的斜杠命令系统 |
+| **颜色输出** | ANSI 颜色代码区分不同角色 | Claude Code 的 Ink/React 终端 UI |
+| **历史管理** | 查看和清空对话历史 | Claude Code 的会话历史系统 |
+| **信号处理** | Ctrl+C / Ctrl+D 优雅退出 | Claude Code 的信号处理 |
+| **双模式** | 交互式 REPL + 单次执行 | Claude Code 的 CLI + SDK 模式 |
+
+REPL 实现使用 Node.js 内置的 `readline` 模块，无需额外依赖：
+
+```typescript
+// src/repl.ts 核心结构
+class REPL {
+  rl: Interface           // readline 接口
+  agent: NanoAgent        // Agent 实例
+
+  start()                 // 启动 REPL
+  processInput()          // 处理用户输入
+  printHelp()             // 显示帮助
+  printHistory()          // 显示历史
+  clearHistory()          // 清空历史
+}
+```
 
 ### 简化的部分
 
@@ -152,8 +209,17 @@ nanoagent/
     │      ├─ findTool()     # 根据名称查找工具
     │      └─ run()          # 主循环 (AsyncGenerator)
     │
+    ├── repl.ts              # 交互式 REPL
+    │   └─ REPL              # REPL 类
+    │      ├─ start()         # 启动 REPL
+    │      ├─ printBanner()   # 显示欢迎横幅
+    │      ├─ processInput()  # 处理用户输入
+    │      ├─ printHelp()     # 显示帮助
+    │      ├─ printHistory()  # 显示对话历史
+    │      └─ clearHistory()  # 清空对话历史
+    │
     └── main.ts              # CLI 入口
-       └─ main()             # 解析命令行参数，启动 Agent
+       └─ main()             # 解析命令行参数，启动 REPL 或单次执行
 ```
 
 ## 内置工具

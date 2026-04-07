@@ -7,6 +7,8 @@ import type { Command, CommandContext, Message } from '../types.js'
 import { COLORS } from '../constants/colors.js'
 import { loadSkills, listSkills } from '../skills.js'
 import { CommandHelpFormatter } from '../command-system.js'
+import { Formatter, Format, InteractiveMenu, showTroubleshootingTips } from '../ui/index.js'
+import { CONFIG } from '../config.js'
 
 // ========== 本地命令 ==========
 
@@ -121,6 +123,221 @@ export const ExitCommand: Command = {
   }
 }
 
+// ========== 系统信息命令 ==========
+
+export const StatusCommand: Command = {
+  type: 'local',
+  name: 'status',
+  aliases: ['state', 'info'],
+  description: '显示系统状态和统计信息',
+  whenToUse: '当你想要了解当前系统状态时使用',
+  handler: (args: string[], context: CommandContext) => {
+    const { agent } = context
+    if (!agent) return
+
+    const stats = agent.getContextStats()
+    const messages = agent.getMessages()
+
+    console.log()
+    Formatter.heading('系统状态', 1)
+
+    const status = {
+      '模型': CONFIG.model,
+      'API 地址': CONFIG.baseURL,
+      '最大 Tokens': String(CONFIG.maxTokens),
+      '当前消息数': String(messages.length),
+      '对话消息': String(agent.getHistory().length),
+      '预计 Tokens': String(stats.estimatedTokens),
+      '上下文利用率': `${Math.round(stats.contextUtilization * 100)}%`
+    }
+
+    console.log()
+    Formatter.keyValue(status)
+    console.log()
+
+    if (stats.contextUtilization > 0.9) {
+      console.log(`${COLORS.yellow}⚠ 警告: 上下文接近满载，建议使用 /clear 清空历史${COLORS.reset}`)
+      console.log()
+    }
+  }
+}
+
+export const ToolsCommand: Command = {
+  type: 'local',
+  name: 'tools',
+  aliases: ['list-tools', 'toollist'],
+  description: '列出所有可用工具',
+  argumentHint: '[工具名称]',
+  whenToUse: '当你需要查看有哪些工具可用时使用',
+  handler: async (args: string[], context: CommandContext) => {
+    const { toolRegistry } = context as any
+
+    if (!toolRegistry) {
+      console.log(`${COLORS.dim}工具信息不可用${COLORS.reset}`)
+      return
+    }
+
+    const tools = toolRegistry.getAll ? toolRegistry.getAll() : []
+    const toolName = args?.[0]
+
+    console.log()
+
+    if (toolName) {
+      // 显示特定工具的详细信息
+      const tool = tools.find((t: any) => t.name.toLowerCase() === toolName.toLowerCase())
+      if (tool) {
+        Formatter.heading(`工具: ${tool.name}`, 2)
+        console.log(`${COLORS.dim}${tool.description}${COLORS.reset}`)
+        console.log()
+
+        if (tool.params) {
+          console.log(`${COLORS.yellow}参数:${COLORS.reset}`)
+          Formatter.keyValue(
+            Object.entries(tool.params).reduce((acc, [key, param]: any) => {
+              acc[key] = param.description || ''
+              return acc
+            }, {} as Record<string, string>)
+          )
+        }
+        console.log()
+      } else {
+        console.log(`${COLORS.red}未找到工具: ${toolName}${COLORS.reset}`)
+      }
+    } else {
+      // 列出所有工具
+      Formatter.heading('可用工具', 2)
+
+      const toolsList = tools.map((t: any) => [t.name, t.description || ''])
+      Formatter.table(
+        ['工具名称', '描述'],
+        toolsList
+      )
+      console.log()
+      console.log(`${COLORS.dim}提示: 使用 ${COLORS.cyan}/tools <工具名>${COLORS.dim} 查看详细信息${COLORS.reset}`)
+      console.log()
+    }
+  }
+}
+
+export const ConfigCommand: Command = {
+  type: 'local',
+  name: 'config',
+  aliases: ['configuration', 'conf'],
+  description: '管理和验证配置',
+  argumentHint: '[show|setup|verify]',
+  whenToUse: '当你需要查看或修改配置时使用',
+  handler: (args: string[], context: CommandContext) => {
+    const subcommand = args?.[0] || 'show'
+
+    console.log()
+
+    if (subcommand === 'show') {
+      Formatter.heading('当前配置', 2)
+      const config = {
+        'API 地址': CONFIG.baseURL,
+        '模型': CONFIG.model,
+        '最大 Tokens': String(CONFIG.maxTokens),
+        'API Key': CONFIG.apiKey === 'NONE' ? '未设置' : '已设置'
+      }
+      Formatter.keyValue(config)
+
+      console.log()
+      console.log(`${COLORS.dim}配置文件位置: .env${COLORS.reset}`)
+      console.log()
+    } else if (subcommand === 'setup') {
+      Formatter.box(
+        '配置向导',
+        '请按照以下步骤配置:\n\n1. 编辑 .env 文件\n2. 设置 BASE_URL（API 服务地址）\n3. 设置 MODEL（模型名称）\n4. 设置 MAX_TOKENS\n5. 运行 /config verify 验证',
+        'info'
+      )
+      console.log()
+    } else if (subcommand === 'verify') {
+      const errors: string[] = []
+
+      if (!CONFIG.baseURL || CONFIG.baseURL === 'http://localhost:11434/') {
+        errors.push('✗ BASE_URL 未配置或为默认值')
+      }
+      if (!CONFIG.model || CONFIG.model === 'qwen3.5:9b') {
+        errors.push('✗ MODEL 未配置或为默认值')
+      }
+      if (CONFIG.maxTokens <= 0) {
+        errors.push('✗ MAX_TOKENS 配置无效')
+      }
+
+      if (errors.length === 0) {
+        Formatter.box(
+          '配置验证',
+          '✓ 所有配置都是有效的\n✓ 可以开始使用 Nano Agent',
+          'success'
+        )
+      } else {
+        Formatter.box(
+          '配置验证失败',
+          errors.join('\n'),
+          'error'
+        )
+        console.log(`\n使用 ${COLORS.cyan}/config setup${COLORS.reset} 进行配置向导\n`)
+      }
+    }
+  }
+}
+
+export const MenuCommand: Command = {
+  type: 'local',
+  name: 'menu',
+  aliases: ['m'],
+  description: '显示命令菜单',
+  whenToUse: '当你需要发现可用命令时使用',
+  handler: (args: string[], context: CommandContext) => {
+    console.log()
+
+    const categories = {
+      '信息和帮助': [
+        { name: 'help', desc: '显示帮助信息' },
+        { name: 'status', desc: '显示系统状态' },
+        { name: 'config', desc: '管理配置' },
+        { name: 'tools', desc: '列出工具' }
+      ],
+      '对话管理': [
+        { name: 'clear', desc: '清空对话历史' },
+        { name: 'history', desc: '查看对话历史' }
+      ],
+      '技能和提示': [
+        { name: 'skills', desc: '列出可用技能' },
+        { name: 'summarize', desc: '总结对话' },
+        { name: 'refine', desc: '优化回复' },
+        { name: 'explain', desc: '解释概念' }
+      ],
+      '控制': [
+        { name: 'troubleshoot', desc: '故障排除' },
+        { name: 'exit', desc: '退出程序' }
+      ]
+    }
+
+    InteractiveMenu.showCommandMenu(categories)
+  }
+}
+
+export const TroubleshootCommand: Command = {
+  type: 'local',
+  name: 'troubleshoot',
+  aliases: ['help-me', 'debug'],
+  description: '显示故障排除指南',
+  argumentHint: '[config|api|tools]',
+  whenToUse: '当遇到问题并需要解决方案时使用',
+  handler: (args: string[]) => {
+    const topic = args?.[0] || 'general'
+
+    console.log()
+
+    if (topic === 'general' || !['config', 'api', 'tools'].includes(topic)) {
+      InteractiveMenu.showQuickStart()
+    } else {
+      showTroubleshootingTips(topic)
+    }
+  }
+}
+
 // ========== 提示词命令示例 ==========
 
 export const SummarizeCommand: Command = {
@@ -186,6 +403,11 @@ export const DEFAULT_LOCAL_COMMANDS: Command[] = [
   ClearCommand,
   HistoryCommand,
   SkillsCommand,
+  StatusCommand,
+  ToolsCommand,
+  ConfigCommand,
+  MenuCommand,
+  TroubleshootCommand,
   ExitCommand,
 ]
 

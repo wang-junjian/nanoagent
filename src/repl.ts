@@ -11,6 +11,7 @@ import {
   createCommandRegistry
 } from './command-system.js'
 import { getDefaultCommands } from './commands/default.js'
+import { CommandSuggester, ErrorDiagnostics } from './ui/index.js'
 import type { Command, Message } from './types.js'
 
 export class REPL {
@@ -45,21 +46,31 @@ export class REPL {
 
   private printBanner(): void {
     console.log(`
-${COLORS.bright}${COLORS.cyan}╔═══════════════════════════════════════════╗${COLORS.reset}
-${COLORS.bright}${COLORS.cyan}║     Nano Agent - 交互式命令行             ║${COLORS.reset}
-${COLORS.bright}${COLORS.cyan}╚═══════════════════════════════════════════╝${COLORS.reset}
+${COLORS.bright}${COLORS.cyan}╔═════════════════════════════════════════════╗${COLORS.reset}
+${COLORS.bright}${COLORS.cyan}║        🤖 Nano Agent 交互式命令行          ║${COLORS.reset}
+${COLORS.bright}${COLORS.cyan}╚═════════════════════════════════════════════╝${COLORS.reset}
 
-${COLORS.dim}输入你的问题，或使用以下命令:${COLORS.reset}
-  ${COLORS.yellow}/help${COLORS.reset}    - 显示帮助信息
-  ${COLORS.yellow}/clear${COLORS.reset}   - 清空对话历史
-  ${COLORS.yellow}/exit${COLORS.reset}    - 退出程序
-  ${COLORS.yellow}/history${COLORS.reset} - 查看对话历史
-  ${COLORS.yellow}/skills${COLORS.reset}  - 列出可用技能
+${COLORS.dim}核心命令:${COLORS.reset}
+  ${COLORS.cyan}/help${COLORS.reset}        - 显示帮助信息
+  ${COLORS.cyan}/menu${COLORS.reset}        - 显示命令菜单
+  ${COLORS.cyan}/status${COLORS.reset}      - 查看系统状态
+  ${COLORS.cyan}/config${COLORS.reset}      - 配置管理
+
+${COLORS.dim}对话管理:${COLORS.reset}
+  ${COLORS.cyan}/clear${COLORS.reset}       - 清空对话历史
+  ${COLORS.cyan}/history${COLORS.reset}     - 查看对话历史
+
+${COLORS.dim}高级功能:${COLORS.reset}
+  ${COLORS.cyan}/tools${COLORS.reset}       - 列出可用工具
+  ${COLORS.cyan}/skills${COLORS.reset}      - 列出可用技能
+  ${COLORS.cyan}/troubleshoot${COLORS.reset} - 故障排除指南
 
 ${COLORS.dim}提示词命令:${COLORS.reset}
-  ${COLORS.yellow}/summarize${COLORS.reset} - 总结当前对话
-  ${COLORS.yellow}/refine${COLORS.reset}    - 优化改进回复
-  ${COLORS.yellow}/explain${COLORS.reset}   - 解释概念或代码
+  ${COLORS.cyan}/summarize${COLORS.reset}  - 总结对话
+  ${COLORS.cyan}/refine${COLORS.reset}     - 优化回复
+  ${COLORS.cyan}/explain${COLORS.reset}    - 解释概念
+
+${COLORS.yellow}💡 提示:${COLORS.reset} 输入 ${COLORS.cyan}/menu${COLORS.reset} 查看完整命令列表
 `)
   }
 
@@ -117,7 +128,17 @@ ${COLORS.dim}提示词命令:${COLORS.reset}
 
           // 既不是命令也不是技能
           console.log(`${COLORS.red}✗ 未知命令或技能: /${commandName}${COLORS.reset}`)
-          console.log(`  使用 ${COLORS.cyan}/help${COLORS.reset} 查看可用命令`)
+
+          // 使用命令建议系统
+          const allCommands = this.commandRegistry.getVisible().map(cmd => ({
+            name: cmd.name,
+            description: cmd.description
+          }))
+
+          const suggestions = CommandSuggester.suggestCommands(commandName, allCommands)
+          CommandSuggester.displaySuggestions(suggestions)
+
+          console.log(`  使用 ${COLORS.cyan}/help${COLORS.reset} 查看所有可用命令`)
           console.log(`  使用 ${COLORS.cyan}/skills${COLORS.reset} 查看可用技能\n`)
           return
         }
@@ -135,7 +156,7 @@ ${COLORS.dim}提示词命令:${COLORS.reset}
 
   private async runAgentWithInput(input: string): Promise<void> {
     if (this.isRunning) {
-      console.log(`${COLORS.yellow}Agent 正在处理中，请稍候...${COLORS.reset}`)
+      console.log(`${COLORS.yellow}⏳ Agent 正在处理中，请稍候...${COLORS.reset}`)
       return
     }
 
@@ -147,7 +168,10 @@ ${COLORS.dim}提示词命令:${COLORS.reset}
         process.stdout.write(chunk)
       }
     } catch (error: any) {
-      console.error(`\n${COLORS.red}❌ 错误: ${error.message}${COLORS.reset}`)
+      console.error()
+      // 使用改进的诊断系统
+      const diagnostic = ErrorDiagnostics.diagnose(error, 'Agent 执行')
+      ErrorDiagnostics.display(diagnostic)
       logger.error('REPL execution error', { error: error.message })
     } finally {
       this.isRunning = false

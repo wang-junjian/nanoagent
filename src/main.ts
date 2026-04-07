@@ -9,44 +9,26 @@
  * 4. 交互式 REPL 模式
  *
  * 用法:
- *   pnpm dev              # 进入交互式 REPL
- *   pnpm dev "你的问题"    # 单次执行模式
+ *   npm run dev              # 进入交互式 REPL
+ *   npm run dev "你的问题"    # 单次执行模式
  */
 
-// 加载 .env 文件（零依赖实现）- 必须在任何 import 之前执行
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-
-function loadEnv() {
-  const envPath = resolve(process.cwd(), '.env')
-  if (existsSync(envPath)) {
-    const content = readFileSync(envPath, 'utf-8')
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim()
-      if (trimmed && !trimmed.startsWith('#')) {
-        const eqIndex = trimmed.indexOf('=')
-        if (eqIndex > 0) {
-          const key = trimmed.slice(0, eqIndex).trim()
-          let value = trimmed.slice(eqIndex + 1).trim()
-          // 移除引号（支持单引号和双引号）
-          if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.slice(1, -1)
-          }
-          process.env[key] = value
-        }
-      }
-    }
-  }
-}
-
+// 第一步：加载环境变量（必须在导入其他模块之前）
+import { loadEnv } from './env.js'
 loadEnv()
 
-// 现在才导入其他模块（使用动态 import 确保 .env 已加载）
-// 重要: 静态 import 会被提升到代码顶部执行，导致 process.env 在 loadEnv() 之前被读取
-// 使用 await import() 确保 .env 文件在 config.ts 读取 process.env 之前已经加载完毕
+// 现在可以安全地导入其他模块（使用动态 import 确保 .env 已加载）
 async function bootstrap() {
   const { NanoAgent } = await import('./agent.js')
   const { REPL } = await import('./repl.js')
+  const { initializeTools } = await import('./tools/index.js')
+  const { initBundledSkills } = await import('./skills/bundled/index.js')
+  const { logger } = await import('./logger.js')
+
+  // 初始化工具系统和技能系统
+  initializeTools()
+  initBundledSkills()
+  logger.info('Tools and skills initialized successfully')
 
   // ============= 主程序 =============
   async function main() {
@@ -75,7 +57,7 @@ async function bootstrap() {
       }
     } catch (error: any) {
       console.error(`\n❌ 错误: ${error.message}`)
-      console.error(error.stack)
+      logger.error('Single mode execution failed', { error: error.message })
     }
 
     console.log('\n' + '═'.repeat(60))
@@ -91,19 +73,25 @@ async function bootstrap() {
 ╚═══════════════════════════════════════════════════════════╝
 
 用法:
-  pnpm dev                    # 进入交互式 REPL 模式
-  pnpm dev "你的问题"          # 单次执行模式
+  npm run dev                    # 进入交互式 REPL 模式
+  npm run dev "你的问题"          # 单次执行模式
 
 示例:
-  pnpm dev
-  pnpm dev "列出当前目录的文件"
-  pnpm dev "读取 package.json 并告诉我这个项目是做什么的"
+  npm run dev
+  npm run dev "列出当前目录的文件"
+  npm run dev "读取 package.json 并告诉我这个项目是做什么的"
 
 交互式 REPL 命令:
   /help     - 显示帮助
   /clear    - 清空对话历史
   /history  - 查看对话历史
+  /skills   - 列出可用技能
   /exit     - 退出程序
+
+提示词命令:
+  /summarize - 总结当前对话
+  /refine    - 优化改进回复
+  /explain   - 解释概念或代码
 `)
   }
 
@@ -116,4 +104,7 @@ async function bootstrap() {
   await main()
 }
 
-bootstrap().catch(console.error)
+bootstrap().catch(error => {
+  console.error('❌ Bootstrap failed:', error)
+  process.exit(1)
+})

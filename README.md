@@ -2,22 +2,26 @@
 
 > 基于 Claude Code 核心原理的最简智能体实现
 
+**当前版本**: v1.1.1 | **最后更新**: 2026-04-06
+
 ## 概述
 
 Nano Agent 是一个极简的 AI 智能体实现，它从 Claude Code v2.1.88 的源码中提炼出核心工作原理，用 TypeScript 重写为一个可独立运行的项目。
 
-本项目借鉴 Claude Code 项目的设计，提供了完整的工具系统、专业的系统提示词、以及项目配置文件。
+本项目借鉴 Claude Code 项目的设计，提供了完整的工具系统、专业的系统提示词、以及完善的命令/技能系统。
 
 ## 核心特性
 
 - 🎯 **Agent 循环** - 用户输入 → LLM → 工具执行 → 回到 LLM
-- 🔧 **可扩展工具系统** - 内置 8 个实用工具（FileRead、FileWrite、FileEdit、Glob、Grep、Bash、ListDir、AskUserQuestion），易于添加新工具
+- 🔧 **可扩展工具系统** - 内置 10 个实用工具，易于添加新工具
 - 💬 **消息历史管理** - 完整的对话上下文保留
 - ⚡ **异步生成器输出** - 实时流式响应
 - 🖥️ **交互式 REPL 模式** - 类似 Claude Code 的命令行界面
 - 📦 **零运行时依赖** - 仅使用 Node.js 内置模块
-- 📝 **完整系统提示词** - 借鉴 Claude Code 的 6 个核心章节专业行为指导
-- ⚙️ **CLAUDE.md 配置** - 帮助 Claude Code 更好地理解和协作开发本项目
+- 📝 **完整系统提示词** - 借鉴 Claude Code 的 6 个核心章节
+- ⚙️ **CLAUDE.md 配置** - 支持 Claude Code 的 AI 工程最佳实践
+- 🚀 **双层技能系统** - 内置 3 个实用技能 + 用户自定义技能
+- 🔄 **命令系统** - 本地命令和提示词命令的统一管理
 
 ## 快速开始
 
@@ -89,8 +93,79 @@ npm start "读取 package.json"
 | `/clear` | 清空对话历史，开始新会话 |
 | `/history` | 查看当前对话的消息历史 |
 | `/exit` | 退出程序 (也可用 Ctrl+C 或 Ctrl+D) |
+| `/skills` | 列出所有可用的技能 |
 
-## 内置工具
+### 技能系统
+
+Nano Agent 支持技能（Skill）系统，技能是预定义的任务模板。技能通过**渐进式展开**的方式工作：当你输入 `/技能名` 时，技能内容会直接展开到对话中。
+
+### 内置技能
+
+Nano Agent 提供了多个内置技能：
+
+| 技能 | 说明 | 使用场景 |
+|------|------|----------|
+| **commit** | 执行 git commit 操作，帮助提交代码更改 | 当用户想要提交代码更改时使用 |
+| **simplify** | 审查更改的代码，检查复用性、质量和效率 | 当用户想要审查和清理代码更改时使用 |
+| **remember** | 审查项目配置文件，帮助管理项目约定 | 当用户想要审查或管理项目配置时使用 |
+
+### 如何使用技能
+
+在 REPL 模式中：
+
+```bash
+# 列出所有可用技能
+/skills
+
+# 直接使用技能（渐进式展开）
+/commit "提交信息"
+/simplify
+/remember
+```
+
+**技能渐进式展开**：当你输入 `/技能名` 时，技能内容会直接展开为用户消息，然后继续执行 Agent 循环。这种方式比通过 Skill 工具调用更自然。
+
+### 创建自定义技能
+
+在 `.claude/skills/` 目录下创建技能目录，每个技能目录包含一个 `SKILL.md` 文件：
+
+```
+.claude/skills/
+└── my-skill/
+    └── SKILL.md
+```
+
+### SKILL.md 格式
+
+技能文件使用 YAML frontmatter + Markdown 内容的格式：
+
+```markdown
+---
+name: 技能名称
+description: 技能描述
+when-to-use: 何时使用此技能
+allowed-tools: ["工具1", "工具2"]
+model: 可选的模型覆盖
+user-invocable: true
+---
+
+# 技能标题
+
+技能的详细提示内容...
+
+参数: $ARGUMENTS
+```
+
+### 技能架构
+
+Nano Agent 的技能系统支持两种类型的技能：
+
+1. **内置技能** - 用 TypeScript 编写，在 `src/skills/bundled/` 目录中定义
+2. **用户自定义技能** - 用 Markdown 编写，在 `.claude/skills/` 目录中定义
+
+内置技能可以通过 `registerBundledSkill()` 函数注册，支持动态生成提示内容。
+
+### 内置工具
 
 ### FileRead
 读取文件内容。
@@ -146,27 +221,224 @@ npm start "读取 package.json"
 **参数：**
 - `question` (string, 必需) - 要问用户的问题
 
-## 如何添加新工具
+### Skill
+执行一个技能（skill），技能是预定义的任务模板。
 
-1. 在 [`src/tools.ts`](src/tools.ts) 的 `TOOLS` 数组中添加新工具定义：
+**参数：**
+- `skill` (string, 必需) - 技能名称
+- `args` (string, 可选) - 传递给技能的参数
 
-```typescript
-{
-  name: 'MyNewTool',
-  description: '工具描述',
-  params: {
-    param1: { type: 'string', description: '参数1描述', required: true },
-    param2: { type: 'number', description: '参数2描述', required: false },
-  },
-  execute: async (args: Record<string, any>) => {
-    const { param1, param2 = 42 } = args
-    // 实现工具逻辑
-    return '工具执行结果'
-  },
-},
+### ListSkills
+列出所有可用的技能。
+
+**参数：** 无
+
+## 命令和技能系统架构
+
+Nano Agent 提供了一个完善的命令和技能系统，支持两种不同类型的功能。
+
+### 📋 Command（命令）系统
+
+**定义**: REPL 中以 `/` 开头的命令，直接执行操作或转换用户输入。
+
+#### Command 的两种类型
+
+**1. LocalCommand - 本地执行命令**
+- 直接在 Node.js 中执行的 JavaScript 代码
+- 调用 REPL 相关功能（如清空历史、显示帮助）
+- 例如: `/help`, `/clear`, `/history`, `/exit`
+
+**2. PromptCommand - 提示词命令** 
+- 转换为 LLM 提示词的命令
+- 输入被扩展后传给 Agent 处理
+- 例如: `/summarize "内容"`, `/refine`, `/explain`
+
+#### Command 特性
+- 支持别名 (aliases) - 如 `/help` 的别名 `/?` 和 `/h`
+- 支持条件启用 (isEnabled) 
+- 可以隐藏 (isHidden)
+- 支持参数提示 (argumentHint)
+
+### 🚀 Skill（技能）系统
+
+**定义**: 可重复使用的提示词模板，支持参数替换和工具访问控制。
+
+#### Skill 的两种来源
+
+**1. 内置技能 (Bundled Skills)**
+- 用 TypeScript 编写
+- 位置: `src/skills/bundled/`
+- 内置示例: commit、simplify、remember
+- 支持动态提示词生成
+
+**2. 用户自定义技能 (User-defined Skills)**
+- 用 Markdown 编写  
+- 位置: `.claude/skills/`
+- 格式: 带 YAML frontmatter 的 Markdown 文件
+- 支持动态加载和配置
+
+#### Skill 特性
+- YAML frontmatter 配置
+- 参数替换 ($ARGUMENTS 或 ${ARGUMENTS})
+- 工具访问控制 (allowed-tools)
+- 模型选择 (model) - 可以为此技能指定特定模型
+- 用户可调用标志 (user-invocable) - 控制用户是否可直接使用
+
+### 🔄 Command vs Skill 对比
+
+| 特性 | Command | Skill |
+|------|---------|-------|
+| 触发方式 | `/command [args]` | `/skillname [args]` |
+| 执行位置 | Local: Node.js / Prompt: LLM | LLM |
+| 定义方式 | 代码定义 | 代码或 Markdown 定义 |
+| 参数处理 | args 数组或字符串 | 文本替换 ($ARGUMENTS) |
+| 使用场景 | REPL 操作 | LLM 任务模板 |
+| 执行流程 | 直接执行或展开为提示词 | 渐进式展开到 Agent 循环 |
+
+### 📊 执行流程
+
+**Command 处理流程:**
+```
+用户输入: /command args
+    ↓
+判断是否为斜杠命令
+    ↓
+查找 CommandRegistry 中的命令
+    ↓
+检查命令是否启用
+    ↓
+执行命令 (LocalCommand) 或展开为提示词 (PromptCommand)
+    ↓
+如果是 PromptCommand，展开后继续 Agent 循环
 ```
 
-2. 工具会自动注册到 Agent 中，无需其他配置！
+**Skill 执行流程:**
+```
+用户输入: /skillname args
+    ↓
+检查 CommandRegistry 中是否有此命令 
+    ↓
+命令不存在 → 检查是否是 Skill
+    ↓
+加载 Skill 内容 (bundled 或 user-defined)
+    ↓
+替换参数 ($ARGUMENTS)
+    ↓
+将展开后的内容作为用户消息
+    ↓
+继续 Agent 循环 → LLM → 工具执行
+```
+
+## 如何添加新工具
+
+1. 在 [`src/tools/`](src/tools/) 目录中创建新的工具类，继承自 `Tool` 基类：
+
+```typescript
+// src/tools/my-tool.ts
+import { Tool } from '../tool-system.js'
+import { ToolExecutionError } from '../errors.js'
+
+export class MyNewTool extends Tool {
+  name = 'MyNewTool'
+  description = '工具描述'
+
+  params = {
+    param1: { type: 'string' as const, description: '参数1描述', required: true },
+    param2: { type: 'number' as const, description: '参数2描述', required: false },
+  }
+
+  async execute(args: Record<string, any>): Promise<string> {
+    const { param1, param2 = 42 } = args
+    try {
+      // 实现工具逻辑
+      return '工具执行结果'
+    } catch (error) {
+      throw new ToolExecutionError(
+        `工具执行失败: ${error instanceof Error ? error.message : String(error)}`,
+        this.name,
+      )
+    }
+  }
+}
+```
+
+2. 在 [`src/tools/index.ts`](src/tools/index.ts) 中注册新工具：
+
+```typescript
+import { MyNewTool } from './my-tool.js'
+
+export function initializeTools(): void {
+  registerTools(
+    // ... 现有工具
+    new MyNewTool(),
+  )
+}
+```
+
+## 如何添加新内置技能
+
+1. 在 [`src/skills/bundled/`](src/skills/bundled/) 目录中创建新的技能文件：
+
+```typescript
+// src/skills/bundled/my-skill.ts
+import { registerBundledSkill } from '../skills.js'
+
+const MY_SKILL_PROMPT = `# 我的技能
+
+技能的详细说明...
+
+用户参数: $ARGUMENTS
+`
+
+export function registerMySkill(): void {
+  registerBundledSkill({
+    name: 'my-skill',
+    description: '技能描述',
+    whenToUse: '何时使用此技能',
+    allowedTools: ['Bash', 'FileRead'],
+    userInvocable: true,
+    getPrompt: (args: string) => {
+      let prompt = MY_SKILL_PROMPT
+      if (args) {
+        prompt += `\n## 用户提供的额外说明\n\n${args}`
+      }
+      return prompt
+    },
+  })
+}
+```
+
+2. 在 [`src/skills/bundled/index.ts`](src/skills/bundled/index.ts) 中注册新技能：
+
+```typescript
+import { registerMySkill } from './my-skill.js'
+
+export function initBundledSkills(): void {
+  // ... 现有技能
+  registerMySkill()
+}
+```
+
+### 技能渐进式展开原理
+
+Nano Agent 的技能系统借鉴 Claude Code 的设计，采用**渐进式展开**方式：
+
+```
+用户输入 "/commit 提交信息"
+    ↓
+检测到是技能 (以 / 开头)
+    ↓
+加载技能内容，替换参数 ($ARGUMENTS)
+    ↓
+将展开后的内容作为用户消息
+    ↓
+继续 Agent 循环 → LLM → 工具执行
+```
+
+这种方式的优点：
+- 更自然：用户直接使用 `/技能名`，不需要额外的工具调用
+- 更高效：技能内容直接展开，减少一次 LLM 往返
+- 更灵活：可以在技能展开后继续自然对话
 
 ## 核心工作原理
 

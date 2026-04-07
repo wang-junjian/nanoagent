@@ -1,27 +1,40 @@
 import { createInterface, Interface } from 'node:readline'
 import { stdin, stdout } from 'node:process'
 import { NanoAgent } from './agent.js'
-
-// ANSI 颜色代码
-const COLORS = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  dim: '\x1b[2m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  cyan: '\x1b[36m',
-  white: '\x1b[37m',
-}
+import { COLORS } from './constants/colors.js'
+import { logger } from './logger.js'
+import { loadSkills, getSkillPrompt } from './skills.js'
+import {
+  CommandRegistry,
+  CommandExecutor,
+  CommandParser,
+  createCommandRegistry
+} from './command-system.js'
+import { getDefaultCommands } from './commands/default.js'
+import type { Command, Message } from './types.js'
 
 export class REPL {
   private rl: Interface
   private agent: NanoAgent
+  private commandRegistry: CommandRegistry
+  private commandExecutor: CommandExecutor
   private isRunning = false
 
   constructor() {
     this.agent = new NanoAgent()
+
+    // 初始化命令系统
+    this.commandRegistry = createCommandRegistry(getDefaultCommands())
+
+    // 创建命令执行上下文
+    const commandContext = {
+      agent: this.agent,
+      cwd: process.cwd(),
+      commandRegistry: this.commandRegistry
+    }
+
+    this.commandExecutor = new CommandExecutor(this.commandRegistry, commandContext as any)
+
     this.rl = createInterface({
       input: stdin,
       output: stdout,
@@ -41,51 +54,13 @@ ${COLORS.dim}输入你的问题，或使用以下命令:${COLORS.reset}
   ${COLORS.yellow}/clear${COLORS.reset}   - 清空对话历史
   ${COLORS.yellow}/exit${COLORS.reset}    - 退出程序
   ${COLORS.yellow}/history${COLORS.reset} - 查看对话历史
+  ${COLORS.yellow}/skills${COLORS.reset}  - 列出可用技能
+
+${COLORS.dim}提示词命令:${COLORS.reset}
+  ${COLORS.yellow}/summarize${COLORS.reset} - 总结当前对话
+  ${COLORS.yellow}/refine${COLORS.reset}    - 优化改进回复
+  ${COLORS.yellow}/explain${COLORS.reset}   - 解释概念或代码
 `)
-  }
-
-  private printHelp(): void {
-    console.log(`
-${COLORS.bright}${COLORS.green}可用命令:${COLORS.reset}
-
-  ${COLORS.cyan}/help${COLORS.reset}     - 显示此帮助信息
-  ${COLORS.cyan}/clear${COLORS.reset}    - 清空当前对话历史，开始新对话
-  ${COLORS.cyan}/exit${COLORS.reset}     - 退出程序 (也可用 Ctrl+C 或 Ctrl+D)
-  ${COLORS.cyan}/history${COLORS.reset}  - 显示当前对话的消息历史
-
-${COLORS.bright}${COLORS.green}使用示例:${COLORS.reset}
-
-  nanoagent> 列出当前目录的文件
-  nanoagent> 读取 package.json
-  nanoagent> 创建一个 test.txt 文件
-`)
-  }
-
-  private printHistory(): void {
-    console.log(`
-${COLORS.bright}${COLORS.yellow}对话历史 (${this.agent.messages.length} 条消息):${COLORS.reset}
-`)
-    this.agent.messages.forEach((msg, index) => {
-      const roleColor =
-        msg.role === 'system' ? COLORS.dim
-        : msg.role === 'user' ? COLORS.green
-        : msg.role === 'assistant' ? COLORS.blue
-        : msg.role === 'tool' ? COLORS.yellow
-        : COLORS.white
-
-      const roleLabel = msg.role.toUpperCase().padEnd(10)
-      const preview = msg.content.length > 100
-        ? msg.content.slice(0, 100) + '...'
-        : msg.content
-
-      console.log(`${COLORS.dim}[${index}]${COLORS.reset} ${roleColor}${roleLabel}${COLORS.reset} ${preview}`)
-    })
-    console.log()
-  }
-
-  private clearHistory(): void {
-    this.agent = new NanoAgent()
-    console.log(`${COLORS.green}✓ 对话历史已清空${COLORS.reset}\n`)
   }
 
   private async processInput(input: string): Promise<void> {
@@ -93,77 +68,107 @@ ${COLORS.bright}${COLORS.yellow}对话历史 (${this.agent.messages.length} 条�
 
     // 处理斜杠命令
     if (trimmed.startsWith('/')) {
-      const [command, ...args] = trimmed.slice(1).split(' ')
-      switch (command.toLowerCase()) {
-        case 'help':
-        case '?':
-          this.printHelp()
-          break
-        case 'clear':
-          this.clearHistory()
-          break
-        case 'exit':
-        case 'quit':
-        case 'q':
-          this.isRunning = false
-          this.rl.close()
+      const parts = trimmed.slice(1).split(/\s+/)
+      const commandName = parts[0]
+      const args = parts.slice(1)
+
+      // 首先尝试使用新命令系统执行
+      const result = await this.commandExecutor.execute(trimmed)
+
+      if (result) {
+        if (result.success) {
+          if (result.type === 'prompt' && result.prompt) {
+            // Prompt 命令：展开为用户输入
+            console.log(`${COLORS.green}✓ 展开命令: /${commandName}${COLORS.reset}`)
+            console.log()
+
+            // 执行提示词命令
+            let promptContent: string
+            if (typeof result.prompt === 'string') {
+              promptContent = result.prompt
+            } else {
+              // Message[] 格式，取最后一条消息的内容
+              promptContent = result.prompt[result.prompt.length - 1].content
+            }
+
+            await this.runAgentWithInput(promptContent)
+          }
           return
-        case 'history':
-          this.printHistory()
-          break
-        default:
-          console.log(`${COLORS.red}未知命令: /${command}${COLORS.reset}`)
-          console.log(`${COLORS.dim}输入 /help 查看可用命令${COLORS.reset}\n`)
+        } else if (result.error) {
+          // 命令执行失败，检查是否是技能
+          const skills = loadSkills()
+          const skill = skills.get(commandName)
+
+          if (skill && skill.userInvocable) {
+            // 技能渐进式展开：直接将技能内容作为用户输入
+            const skillArgs = args.join(' ')
+            const skillPrompt = getSkillPrompt(skill, skillArgs)
+
+            console.log(`${COLORS.green}✓ 展开技能: ${skill.name}${COLORS.reset}`)
+            if (skill.description) {
+              console.log(`${COLORS.dim}  ${skill.description}${COLORS.reset}`)
+            }
+            console.log()
+
+            // 直接用展开后的技能内容运行 agent
+            await this.runAgentWithInput(skillPrompt)
+            return
+          }
+
+          // 既不是命令也不是技能
+          console.log(`${COLORS.red}✗ 未知命令或技能: /${commandName}${COLORS.reset}`)
+          console.log(`  使用 ${COLORS.cyan}/help${COLORS.reset} 查看可用命令`)
+          console.log(`  使用 ${COLORS.cyan}/skills${COLORS.reset} 查看可用技能\n`)
+          return
+        }
+        return
       }
-      return
     }
 
-    // 空输入，忽略
+    // 处理普通用户输入
     if (!trimmed) {
       return
     }
 
-    // 正常对话
-    console.log()
+    await this.runAgentWithInput(trimmed)
+  }
+
+  private async runAgentWithInput(input: string): Promise<void> {
+    if (this.isRunning) {
+      console.log(`${COLORS.yellow}Agent 正在处理中，请稍候...${COLORS.reset}`)
+      return
+    }
+
+    this.isRunning = true
     try {
-      for await (const chunk of this.agent.run(trimmed)) {
+      logger.info('Processing user input', { inputLength: input.length })
+
+      for await (const chunk of this.agent.run(input)) {
         process.stdout.write(chunk)
       }
     } catch (error: any) {
-      console.error(`\n${COLORS.red}✗ 错误: ${error.message}${COLORS.reset}`)
+      console.error(`\n${COLORS.red}❌ 错误: ${error.message}${COLORS.reset}`)
+      logger.error('REPL execution error', { error: error.message })
+    } finally {
+      this.isRunning = false
+      console.log() // 添加空行
     }
-    console.log()
   }
 
   async start(): Promise<void> {
-    this.isRunning = true
     this.printBanner()
 
     // 处理 SIGINT (Ctrl+C)
     process.on('SIGINT', () => {
       console.log(`\n\n${COLORS.yellow}再见！${COLORS.reset}`)
-      this.isRunning = false
-      this.rl.close()
       process.exit(0)
     })
 
-    // 设置 readline 事件
-    this.rl.on('line', async (input) => {
-      this.rl.pause()
-      await this.processInput(input)
-      if (this.isRunning) {
-        this.rl.prompt()
-        this.rl.resume()
-      }
-    })
-
-    this.rl.on('close', () => {
-      if (this.isRunning) {
-        console.log(`\n${COLORS.yellow}再见！${COLORS.reset}`)
-        process.exit(0)
-      }
-    })
-
     this.rl.prompt()
+
+    for await (const line of this.rl) {
+      await this.processInput(line)
+      this.rl.prompt()
+    }
   }
 }
